@@ -26,7 +26,8 @@ def custom_wrapper(method):
 class CorsTestCase(AsyncHTTPTestCase):
 
     def test_should_return_headers_with_default_values_in_options_request(self):
-        self.http_client.fetch(self.get_url('/default'), self.stop, method='OPTIONS')
+        self.http_client.fetch(self.get_url('/default'), self.stop, method='OPTIONS',
+            headers={'Origin': 'http://example.foo'})
         headers = self.wait().headers
 
         self.assertNotIn('Access-Control-Allow-Origin', headers)
@@ -36,7 +37,8 @@ class CorsTestCase(AsyncHTTPTestCase):
         self.assertEqual(headers['Access-Control-Max-Age'], '86400')
 
     def test_should_return_headers_with_custom_values_in_options_request(self):
-        self.http_client.fetch(self.get_url('/custom'), self.stop, method='OPTIONS')
+        self.http_client.fetch(self.get_url('/custom'), self.stop, method='OPTIONS',
+            headers={'Origin': 'http://example.foo'})
         headers = self.wait().headers
         self.assertEqual(headers['Access-Control-Allow-Origin'], '*')
         self.assertEqual(headers['Access-Control-Allow-Headers'], 'Content-Type')
@@ -45,22 +47,48 @@ class CorsTestCase(AsyncHTTPTestCase):
         self.assertNotIn('Access-Control-Max-Age', headers)
 
     def test_should_return_origin_header_for_requests_other_than_options(self):
-        self.http_client.fetch(self.get_url('/custom'), self.stop, method='POST', body='')
+        self.http_client.fetch(self.get_url('/custom'), self.stop, method='POST',
+            body='', headers={'Origin': 'http://example.foo'})
         headers = self.wait().headers
         self.assertEqual(headers['Access-Control-Allow-Origin'], '*')
 
     def test_should_support_custom_methods(self):
-        response = self.http_client.fetch(self.get_url('/custom_method'), self.stop, method='OPTIONS')
+        self.http_client.fetch(self.get_url('/custom_method'), self.stop,
+            method='OPTIONS', headers={'Origin': 'http://example.foo'})
         headers = self.wait().headers
         self.assertEqual(headers["Access-Control-Allow-Methods"], 'OPTIONS, NEW_METHOD')
 
-    def test_should_support_custom_methods(self):
-        response = self.http_client.fetch(self.get_url('/custom_method'), self.stop, method='OPTIONS')
+    def test_no_origin_header_options_request(self):
+        """
+        When an ``Origin`` header is not included in the request, no
+        ``Access-Control-*`` headers should be included.
+        """
+        self.http_client.fetch(self.get_url('/default'), self.stop, method='OPTIONS')
         headers = self.wait().headers
-        self.assertEqual(headers["Access-Control-Allow-Methods"], 'OPTIONS, NEW_METHOD')
+
+        self.assertNotIn('Access-Control-Allow-Origin', headers)
+        self.assertNotIn('Access-Control-Allow-Headers', headers)
+        self.assertNotIn('Access-Control-Allow-Credentials', headers)
+        self.assertNotIn('Access-Control-Allow-Methods', headers)
+        self.assertNotIn('Access-Control-Max-Age', headers)
+
+    def test_options_request_with_no_origin(self):
+        """
+        This test hits a handler that has it's own ``options`` method without
+        an ``Origin`` header. In this case, the non-preflight OPTIONS
+        response should be returned.
+        """
+        self.http_client.fetch(self.get_url('/has_options_method'), self.stop, method='OPTIONS')
+        body = self.wait().body
+        self.assertIn('Non-CORS', body)
 
     def get_app(self):
-        return Application([(r'/default', DefaultValuesHandler), (r'/custom', CustomValuesHandler), (r'/custom_method', CustomMethodValuesHandler)])
+        return Application([
+            (r'/default', DefaultValuesHandler),
+            (r'/custom', CustomValuesHandler),
+            (r'/custom_method', CustomMethodValuesHandler),
+            (r'/has_options_method', HasOptionsMethodHandler)
+        ])
 
 
 class CustomWrapperTestCase(AsyncHTTPTestCase):
@@ -106,6 +134,20 @@ class DefaultValuesHandler(cors.CorsMixin, RequestHandler):
 
     @asynchronous
     def delete(self):
+        self.finish()
+
+
+class HasOptionsMethodHandler(cors.CorsMixin, RequestHandler):
+    """
+    CORS enabled can have their own OPTIONS methods. If they receive an OPTIONS
+    request but no ``Origin`` header, the non-preflight OPTIONS method should
+    respond.
+
+    This handler allows the above case to be tested.
+    """
+    @asynchronous
+    def options(self):
+        self.write('Non-CORS OPTIONS responding')
         self.finish()
 
 

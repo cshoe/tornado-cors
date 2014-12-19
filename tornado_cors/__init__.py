@@ -22,24 +22,27 @@ class CorsMixin(object):
     CORS_MAX_AGE = 86400
 
     def set_default_headers(self):
-        if self.CORS_ORIGIN:
+        if self.CORS_ORIGIN and 'Origin' in self.request.headers:
             self.set_header("Access-Control-Allow-Origin", self.CORS_ORIGIN)
 
     @custom_decorator.wrapper
     def options(self, *args, **kwargs):
-        if self.CORS_HEADERS:
-            self.set_header('Access-Control-Allow-Headers', self.CORS_HEADERS)
-        if self.CORS_METHODS:
-            self.set_header('Access-Control-Allow-Methods', self.CORS_METHODS)
+        if 'Origin' in self.request.headers:
+            if self.CORS_HEADERS:
+                self.set_header('Access-Control-Allow-Headers', self.CORS_HEADERS)
+            if self.CORS_METHODS:
+                self.set_header('Access-Control-Allow-Methods', self.CORS_METHODS)
+            else:
+                self.set_header('Access-Control-Allow-Methods', self._get_methods())
+            if self.CORS_CREDENTIALS != None:
+                self.set_header('Access-Control-Allow-Credentials',
+                    "true" if self.CORS_CREDENTIALS else "false")
+            if self.CORS_MAX_AGE:
+                self.set_header('Access-Control-Max-Age', self.CORS_MAX_AGE)
+            self.set_status(204)
+            self.finish()
         else:
-            self.set_header('Access-Control-Allow-Methods', self._get_methods())
-        if self.CORS_CREDENTIALS != None:
-            self.set_header('Access-Control-Allow-Credentials',
-                "true" if self.CORS_CREDENTIALS else "false")
-        if self.CORS_MAX_AGE:
-            self.set_header('Access-Control-Max-Age', self.CORS_MAX_AGE)
-        self.set_status(204)
-        self.finish()
+            super(CorsMixin, self).options(*args, **kwargs)
 
     def _get_methods(self):
         supported_methods = [method.lower() for method in self.SUPPORTED_METHODS]
